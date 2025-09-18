@@ -28,14 +28,16 @@ except ImportError:
 class APIClient:
     """Unified API client that can use either Ollama or Nebius API."""
     
-    def __init__(self, api_type: str = "auto"):
+    def __init__(self, api_type: str = "auto", api_key: Optional[str] = None):
         """
         Initialize the API client.
         
         Args:
             api_type: "ollama", "nebius", or "auto" (auto-detect based on availability)
+            api_key: Optional API key for Nebius. If provided, it overrides environment.
         """
         self.api_type = api_type
+        self.api_key = api_key
         self.nebius_client = None
         self.ollama_available = OLLAMA_AVAILABLE
         
@@ -44,7 +46,7 @@ class APIClient:
         
         # Auto-detect if not specified
         if api_type == "auto":
-            if OPENAI_AVAILABLE and os.getenv("NEBIUS_API_KEY"):
+            if OPENAI_AVAILABLE and (self.api_key or os.getenv("NEBIUS_API_KEY")):
                 self.api_type = "nebius"
             elif OLLAMA_AVAILABLE:
                 self.api_type = "ollama"
@@ -56,7 +58,7 @@ class APIClient:
             if not OPENAI_AVAILABLE:
                 raise RuntimeError("OpenAI package not available. Install with: pip install openai")
             
-            api_key = os.getenv("NEBIUS_API_KEY")
+            api_key = self.api_key or os.getenv("NEBIUS_API_KEY")
             if not api_key:
                 raise RuntimeError("NEBIUS_API_KEY environment variable not set")
             
@@ -513,12 +515,15 @@ class APIClient:
         return {"error": "Could not parse JSON from response", "content": content}
 
 
-# Global API client instance
-_api_client = None
+# Global API clients cache (keyed by api_type and api_key)
+_api_clients: dict[str, APIClient] = {}
 
-def get_api_client(api_type: str = "auto") -> APIClient:
-    """Get or create the global API client instance."""
-    global _api_client
-    if _api_client is None or _api_client.api_type != api_type:
-        _api_client = APIClient(api_type)
-    return _api_client
+def get_api_client(api_type: str = "auto", api_key: Optional[str] = None) -> APIClient:
+    """Get or create a cached API client instance keyed by (api_type, api_key)."""
+    global _api_clients
+    cache_key = f"{api_type}:{api_key or ''}"
+    client = _api_clients.get(cache_key)
+    if client is None:
+        client = APIClient(api_type=api_type, api_key=api_key)
+        _api_clients[cache_key] = client
+    return client

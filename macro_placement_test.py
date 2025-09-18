@@ -10,10 +10,9 @@ import base64
 import shutil
 
 from utils.timing import StepTimer
-from layout_constraints import compute_canvas_size, grid_cells, finalize_layout
+from layout_constraints import compute_canvas_size
 from background_resizing import fill_solid
 from compositor import composite, load_object_images
-from layout_llava import request_layout_llava
 from api_client import get_api_client
 
 
@@ -32,13 +31,15 @@ def _vlm_request_critic(
     summary_text: str,
     role_lines: List[str],
     context_note: str,
+    api_key: str | None = None,
+    critic_prompt_override: str | None = None,
 ) -> Tuple[str, str]:
     """Return (critic_prompt, critic_raw_text). Temperature is fixed at 0.3.
 
     The critic sees: composed draft, original input, contact sheet; outputs free-form text
     with a very strict score /10, violations of HARD constraints, and actionable issues.
     """
-    api_client = get_api_client(api_type)
+    api_client = get_api_client(api_type, api_key=api_key)
     contact_b64 = _encode_pil_to_b64_png(contact_sheet)
     with open(original_input_path, "rb") as f_orig:
         original_b64 = base64.b64encode(f_orig.read()).decode("utf-8")
@@ -103,6 +104,10 @@ Analyze the draft and provide your critique structured into the following sectio
         images_list.append(original_b64)
     if composite_b64:
         images_list.append(composite_b64)
+
+    # Allow full override of the critic prompt
+    if critic_prompt_override and critic_prompt_override.strip():
+        critic_prompt = critic_prompt_override
 
     messages = [
         {"role": "system", "content": "You are a strict design critic. Output only plain text. Be concise and specific."},
@@ -710,6 +715,9 @@ def _vlm_request_flex(
     api_type: str,
     temperature: float,
     margin_pct: float,
+    planner_addendum: str = "",
+    api_key: str | None = None,
+    planner_prompt_override: str | None = None,
 ) -> Tuple[Dict, str, str, List[str], str, str]:
     with open(results_json_path, "r", encoding="utf-8") as f:
         items = json.load(f)
@@ -767,9 +775,16 @@ OUTPUT INSTRUCTIONS
 
     Your output must be ONLY the valid JSON object.
 
-    Do not include any explanations, comments, or markdown code fences."""
+    Do not include any explanations, comments, or markdown code fences.
 
-    api_client = get_api_client(api_type)
+ADDITIONAL GUIDANCE (optional):
+{planner_addendum}
+"""
+
+    if planner_prompt_override and planner_prompt_override.strip():
+        base_prompt = planner_prompt_override
+
+    api_client = get_api_client(api_type, api_key=api_key)
     contact_b64 = _encode_pil_to_b64_png(contact_sheet)
     with open(background_path, "rb") as f:
         background_b64 = base64.b64encode(f.read()).decode("utf-8")
@@ -817,6 +832,9 @@ def _vlm_request_refine(
     summary_text: str,
     role_lines: List[str],
     extra_instructions: str = "",
+    refiner_addendum: str = "",
+    api_key: str | None = None,
+    refiner_prompt_override: str | None = None,
 ) -> Tuple[Dict, str, str]:
     """
     Request a refined Flex DSL JSON from the VLM, given the previous composite render and previous Flex JSON.
@@ -854,12 +872,19 @@ OUTPUT INSTRUCTIONS
 
     You are authorized to make radical changes to the previous JSON structure to fix the reported problems.
 
-    Do not include any explanations, comments, or markdown code fences."""
+    Do not include any explanations, comments, or markdown code fences.
+
+ADDITIONAL GUIDANCE (optional):
+{refiner_addendum}
+"""
 
     if extra_instructions:
         prompt_text += "\n\nCorrections from validator (fix these strictly):\n" + extra_instructions
 
-    api_client = get_api_client(api_type)
+    if refiner_prompt_override and refiner_prompt_override.strip():
+        prompt_text = refiner_prompt_override
+
+    api_client = get_api_client(api_type, api_key=api_key)
     contact_b64 = _encode_pil_to_b64_png(contact_sheet)
     with open(background_path, "rb") as f_bg:
         background_b64 = base64.b64encode(f_bg.read()).decode("utf-8")
@@ -919,6 +944,12 @@ def run_macro_only(
     temperature: float = 1.0,
     refine_iters: int = 10,
     original_input_path: str | None = None,
+    api_key: str | None = None,
+    planner_addendum: str = "",
+    refiner_addendum: str = "",
+    planner_prompt_override: str | None = None,
+    critic_prompt_override: str | None = None,
+    refiner_prompt_override: str | None = None,
 ) -> None:
     print("\n=== Running macro placement with Flex DSL and iterative refinement ===")
 
@@ -1005,6 +1036,9 @@ def run_macro_only(
             api_type,
             temperature,
             margin,
+            planner_addendum=planner_addendum,
+            api_key=api_key,
+            planner_prompt_override=planner_prompt_override,
         )
         with open(out_vlm_0 / "layout_flex_iter_00.json", "w", encoding="utf-8") as f:
             json.dump(flex_raw, f, indent=2)
@@ -1094,6 +1128,8 @@ def run_macro_only(
                 _summary_text,
                 role_lines,
                 context_note,
+                api_key=api_key,
+                critic_prompt_override=critic_prompt_override,
             )
             (out_text_i / f"critic_prompt_iter_{i:02d}.txt").write_text(critic_prompt, encoding="utf-8")
             (out_vlm_i / f"critic_raw_iter_{i:02d}.txt").write_text(critic_raw, encoding="utf-8")
@@ -1119,6 +1155,9 @@ def run_macro_only(
                 _summary_text,
                 role_lines,
                 extra_instr,
+                refiner_addendum=refiner_addendum,
+                api_key=api_key,
+                refiner_prompt_override=refiner_prompt_override,
             )
             with open(out_vlm_i / f"layout_flex_iter_{i:02d}.json", "w", encoding="utf-8") as f:
                 json.dump(refine_raw, f, indent=2)
@@ -1156,6 +1195,9 @@ def run_macro_only(
                     _summary_text,
                     role_lines,
                     extra_instr,
+                    refiner_addendum=refiner_addendum,
+                    api_key=api_key,
+                    refiner_prompt_override=refiner_prompt_override,
                 )
                 with open(out_vlm_i / f"layout_flex_iter_{i:02d}_retry.json", "w", encoding="utf-8") as f:
                     json.dump(refine_raw, f, indent=2)
