@@ -28,13 +28,13 @@ The core idea is to combine a deterministic compositor with a VLM-guided layout 
 ### Visual overview
 
 <p align="center" style="text-align:center;">
-  <img src="assets/squarespace.jpg" width="220" style="vertical-align:middle; object-fit:contain;" alt="Original input">
+  <img src="assets/squarespace.jpg" width="350" style="vertical-align:middle; object-fit:contain;" alt="Original input">
   <span style="font-size:28px; margin: 0 12px; vertical-align:middle;">→</span>
-  <img src="assets/annotated.png" width="220" style="vertical-align:middle; object-fit:contain;" alt="Annotated / segmented (upstream step)">
+  <img src="assets/annotated.png" width="350" style="vertical-align:middle; object-fit:contain;" alt="Annotated / segmented (upstream step)">
   <span style="font-size:28px; margin: 0 12px; vertical-align:middle;">→</span>
-  <img src="assets/draft_macro_iter_00.png" height="220" style="vertical-align:middle; object-fit:contain;" alt="Iteration 0 (first draft)">
+  <img src="assets/draft_macro_iter_00.png" height="270" style="vertical-align:middle; object-fit:contain;" alt="Iteration 0 (first draft)">
   <span style="font-size:28px; margin: 0 12px; vertical-align:middle;">→</span>
-  <img src="assets/draft_macro_iter_01.png" height="220" style="vertical-align:middle; object-fit:contain;" alt="Iteration 1 (refined)">
+  <img src="assets/draft_macro_iter_01.png" height="270" style="vertical-align:middle; object-fit:contain;" alt="Iteration 1 (refined)">
   <span style="font-size:28px; margin: 0 12px; vertical-align:middle;">→</span>
   <em style="vertical-align:middle;">additional iterations…</em>
   <br/>
