@@ -1,0 +1,54 @@
+[
+    {
+        "object_id": 1,
+        "label": "logo",
+        "per_label_number": 1,
+        "filename": "objects/logo_1.png",
+        "bounding_box": [
+            33.0,
+            95.0,
+            263.0,
+            157.0
+        ],
+        "confidence_score": 1.0
+    },
+    {
+        "object_id": 2,
+        "label": "photo",
+        "per_label_number": 1,
+        "filename": "objects/photo_1.png",
+        "bounding_box": [
+            269.0,
+            36.0,
+            626.0,
+            243.0
+        ],
+        "confidence_score": 1.0
+    },
+    {
+        "object_id": 3,
+        "label": "text",
+        "per_label_number": 1,
+        "filename": "objects/text_1.png",
+        "bounding_box": [
+            656.0,
+            31.0,
+            913.0,
+            168.0
+        ],
+        "confidence_score": 1.0
+    },
+    {
+        "object_id": 4,
+        "label": "cta",
+        "per_label_number": 1,
+        "filename": "objects/cta_1.png",
+        "bounding_box": [
+            722.0,
+            183.0,
+            853.0,
+            215.0
+        ],
+        "confidence_score": 1.0
+    }
+]
