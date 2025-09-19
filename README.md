@@ -46,19 +46,19 @@ The core idea is to combine a deterministic compositor with a VLM-guided layout 
 <p align="center" style="font-size:28px; margin: 2px 0;">↓</p>
 
 <div align="center">
-  <table>
-    <tr>
-      <td align="center">
+  <table style="border-collapse:collapse; border:0;">
+    <tr style="border:0;">
+      <td align="center" style="border:0;">
         <img src="assets/draft_macro_iter_00.png" height="200" alt="Iteration 0 (first draft)"><br/>
         <sub>Iter 0</sub>
       </td>
-      <td align="center" style="font-size:28px; padding: 0 12px;">→</td>
-      <td align="center">
+      <td align="center" style="font-size:28px; padding: 0 12px; border:0;">→</td>
+      <td align="center" style="border:0;">
         <img src="assets/draft_macro_iter_01.png" height="200" alt="Iteration 1 (refined)"><br/>
         <sub>Iter 1</sub>
       </td>
-      <td align="center" style="font-size:28px; padding: 0 12px;">→</td>
-      <td align="center"><em>additional iterations…</em></td>
+      <td align="center" style="font-size:28px; padding: 0 12px; border:0;">→</td>
+      <td align="center" style="border:0;"><em>additional iterations…</em></td>
     </tr>
   </table>
 </div>
