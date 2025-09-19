@@ -28,11 +28,11 @@ The core idea is to combine a deterministic compositor with a VLM-guided layout 
 ### Visual overview
 
 <p align="center" style="text-align:center;">
-  <span style="display:inline-block; text-align:center; vertical-align:middle;">
+  <span style="display:inline-block; text-align:center; vertical-align:middle; horizontal-align:middle;">
     <img src="assets/squarespace.jpg" width="270" style="vertical-align:middle; object-fit:contain;" alt="Original input"><br/>
     <sub>Original</sub>
   </span>
-  <span style="font-size:28px; margin: 0 16px; vertical-align:middle;">→</span>
+  <span style="font-size:28px; margin: 0 16px; vertical-align:middle; horizontal-align:middle;">→</span>
   <span style="display:inline-block; text-align:center; vertical-align:middle;">
     <img src="assets/annotated.png" width="270" style="vertical-align:middle; object-fit:contain;" alt="Annotated / segmented (upstream step)"><br/>
     <sub>Segmentation (outside this module)</sub>
@@ -40,11 +40,11 @@ The core idea is to combine a deterministic compositor with a VLM-guided layout 
 </p>
 
 <p align="center" style="text-align:center;">
-  <span style="display:inline-block; text-align:center; vertical-align:middle;">
+  <span style="display:inline-block; text-align:center; vertical-align:middle; horizontal-align:middle;">
     <img src="assets/draft_macro_iter_00.png" height="200" style="vertical-align:middle; object-fit:contain;" alt="Iteration 0 (first draft)"><br/>
     <sub>Iter 0</sub>
   </span>
-  <span style="font-size:28px; margin: 0 16px; vertical-align:middle;">→</span>
+  <span style="font-size:28px; margin: 0 16px; vertical-align:middle; horizontal-align:middle;">→</span>
   <span style="display:inline-block; text-align:center; vertical-align:middle;">
     <img src="assets/draft_macro_iter_01.png" height="200" style="vertical-align:middle; object-fit:contain;" alt="Iteration 1 (refined)"><br/>
     <sub>Iter 1</sub>
