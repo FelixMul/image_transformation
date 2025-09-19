@@ -25,6 +25,31 @@ The core idea is to combine a deterministic compositor with a VLM-guided layout 
 
 5) Deterministic compositor renders the placements. The process can iterate a few times (critique → refine → compose) to improve the layout.
 
+### Visual overview
+
+<p align="center">
+  <img src="assets/squarespace.jpg" width="240" alt="Original input">
+  <span style="font-size:28px; margin: 0 12px;">→</span>
+  <img src="assets/annotated.png" width="240" alt="Annotated / segmented (upstream step)">
+  <span style="font-size:28px; margin: 0 12px;">→</span>
+  <img src="assets/draft_macro_iter_00.png" width="240" alt="Iteration 0 (first draft)">
+  <span style="font-size:28px; margin: 0 12px;">→</span>
+  <img src="assets/draft_macro_iter_01.png" width="240" alt="Iteration 1 (refined)">
+  <span style="font-size:28px; margin: 0 12px;">→</span>
+  <em>additional iterations…</em>
+  <br/>
+  <sub>Original</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>Segmentation (outside this module)</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>Iter 0</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>Iter 1</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>…</sub>
+  
+</p>
+
 ## Prompt engineering playground
 
 The Streamlit UI exposes full prompt boxes for each persona:
@@ -53,24 +78,24 @@ Prereqs: Python and `uv` installed.
 
 ```bash
 uv run --with streamlit --with pillow --with numpy --with openai \
-  streamlit run "$(pwd)/macro_placement_app/app.py"
+  streamlit run app.py
 ```
 
 In the UI:
 - Paste your Nebius API key in the sidebar (used only for this session).
-- Pick an input image from `macro_placement_app/input/`.
-- Ensure the segmentation bundle exists at `macro_placement_app/output/<image_stem>/` with `background.png`, `results.json`, and `objects/`.
+- Pick an input image from `input/`.
+- Ensure the segmentation bundle exists at `output/<image_stem>/` with `background.png`, `results.json`, and `objects/`.
 - Set ratio, align, margin, temperature, and refine iterations.
 - Optionally edit the full persona prompts. Run the pipeline and explore iterations.
 
 ## Inputs and outputs (expected layout)
 
-- `macro_placement_app/input/<name>.png|jpg` – original input image (displayed in the UI)
-- `macro_placement_app/output/<name>/` – segmentation bundle (required)
+- `input/<name>.png|jpg` – original input image (displayed in the UI)
+- `output/<name>/` – segmentation bundle (required)
   - `background.png` – original background with holes/alpha
   - `results.json` – list of objects: `{object_id, filename, label, bounding_box}`
   - `objects/` – cutouts referenced by `results.json`
-- `macro_placement_app/output_macro_placement/<name>/iteration_XX/`
+- `output_macro_placement/<name>/iteration_XX/`
   - `final_product/draft_macro_iter_XX.png` – composed result
   - `vlm_input_text/*` – prompts and validator outputs
   - `vlm_output/*` – raw VLM responses and layout JSONs
