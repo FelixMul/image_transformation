@@ -28,15 +28,29 @@ The core idea is to combine a deterministic compositor with a VLM-guided layout 
 ### Visual overview
 
 <p align="center" style="text-align:center;">
-  <img src="assets/squarespace.jpg" width="350" style="vertical-align:middle; object-fit:contain;" alt="Original input">
+  <span style="display:inline-block; text-align:center; vertical-align:middle;">
+    <img src="assets/squarespace.jpg" width="350" style="vertical-align:middle; object-fit:contain;" alt="Original input"><br/>
+    <sub>Original</sub>
+  </span>
   <span style="font-size:28px; margin: 0 12px; vertical-align:middle;">→</span>
-  <img src="assets/annotated.png" width="350" style="vertical-align:middle; object-fit:contain;" alt="Annotated / segmented (upstream step)">
+  <span style="display:inline-block; text-align:center; vertical-align:middle;">
+    <img src="assets/annotated.png" width="350" style="vertical-align:middle; object-fit:contain;" alt="Annotated / segmented (upstream step)"><br/>
+    <sub>Segmentation (outside this module)</sub>
+  </span>
   <span style="font-size:28px; margin: 0 12px; vertical-align:middle;">→</span>
-  <img src="assets/draft_macro_iter_00.png" height="270" style="vertical-align:middle; object-fit:contain;" alt="Iteration 0 (first draft)">
+  <span style="display:inline-block; text-align:center; vertical-align:middle;">
+    <img src="assets/draft_macro_iter_00.png" height="270" style="vertical-align:middle; object-fit:contain;" alt="Iteration 0 (first draft)"><br/>
+    <sub>Iter 0</sub>
+  </span>
   <span style="font-size:28px; margin: 0 12px; vertical-align:middle;">→</span>
-  <img src="assets/draft_macro_iter_01.png" height="270" style="vertical-align:middle; object-fit:contain;" alt="Iteration 1 (refined)">
+  <span style="display:inline-block; text-align:center; vertical-align:middle;">
+    <img src="assets/draft_macro_iter_01.png" height="270" style="vertical-align:middle; object-fit:contain;" alt="Iteration 1 (refined)"><br/>
+    <sub>Iter 1</sub>
+  </span>
   <span style="font-size:28px; margin: 0 12px; vertical-align:middle;">→</span>
-  <em style="vertical-align:middle;">additional iterations…</em>
+  <span style="display:inline-block; text-align:center; vertical-align:middle;">
+    <em>additional iterations…</em>
+  </span>
   <br/>
   <sub>Original</sub>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
