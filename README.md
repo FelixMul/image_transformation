@@ -34,6 +34,8 @@ The core idea is to combine a deterministic compositor with a VLM-guided layout 
   </span>
 </p>
 
+<p align="center" style="font-size:28px; margin: 2px 0;">↓</p>
+
 <p align="center" style="text-align:center;">
   <span style="display:inline-block; text-align:center; vertical-align:middle;">
     <img src="assets/annotated.png" width="270" style="vertical-align:middle; object-fit:contain;" alt="Annotated / segmented (upstream step)"><br/>
@@ -41,21 +43,25 @@ The core idea is to combine a deterministic compositor with a VLM-guided layout 
   </span>
 </p>
 
-<p align="center" style="text-align:center; white-space:nowrap;">
-  <span style="display:inline-block; text-align:center; vertical-align:middle; horizontal-align:middle;">
-    <img src="assets/draft_macro_iter_00.png" height="200" style="vertical-align:middle; object-fit:contain;" alt="Iteration 0 (first draft)"><br/>
-    <sub>Iter 0</sub>
-  </span>
-  <span style="font-size:28px; margin: 0 16px; vertical-align:middle; horizontal-align:middle;">→</span>
-  <span style="display:inline-block; text-align:center; vertical-align:middle;">
-    <img src="assets/draft_macro_iter_01.png" height="200" style="vertical-align:middle; object-fit:contain;" alt="Iteration 1 (refined)"><br/>
-    <sub>Iter 1</sub>
-  </span>
-  <span style="font-size:28px; margin: 0 16px; vertical-align:middle;">→</span>
-  <span style="display:inline-block; text-align:center; vertical-align:middle;">
-    <em>additional iterations…</em>
-  </span>
-</p>
+<p align="center" style="font-size:28px; margin: 2px 0;">↓</p>
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center">
+        <img src="assets/draft_macro_iter_00.png" height="200" alt="Iteration 0 (first draft)"><br/>
+        <sub>Iter 0</sub>
+      </td>
+      <td align="center" style="font-size:28px; padding: 0 12px;">→</td>
+      <td align="center">
+        <img src="assets/draft_macro_iter_01.png" height="200" alt="Iteration 1 (refined)"><br/>
+        <sub>Iter 1</sub>
+      </td>
+      <td align="center" style="font-size:28px; padding: 0 12px;">→</td>
+      <td align="center"><em>additional iterations…</em></td>
+    </tr>
+  </table>
+</div>
 
 ## Prompt engineering playground
 
