@@ -1,0 +1,26 @@
+# VCS/IDE
+.git
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+
+# Python caches
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+
+# Local env files
+.env
+.ENV
+
+# Build/output artifacts we don't need in the image
+output_macro_placement/
+
+# Misc
+*.log
