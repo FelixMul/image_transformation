@@ -57,8 +57,8 @@ The core idea is to combine a deterministic compositor with a VLM-guided layout 
         <img src="assets/draft_macro_iter_01.png" height="200" alt="Iteration 1 (refined)"><br/>
         <sub>Iter 1</sub>
       </td>
-      <td align="center" style="font-size:28px; padding: 0 12px; border:0;">→</td>
-      <td align="center" style="border:0;"><em>additional iterations…</em></td>
+      <td align="center" style="font-size:28px; padding: 0 12px;">→</td>
+      <td align="center"><em>additional iterations…</em></td>
     </tr>
   </table>
 </div>
