@@ -52,25 +52,51 @@ refine_iters = st.sidebar.slider("Refine iterations", min_value=0, max_value=10,
 
 st.title("Macro Placement – Streamlit UI")
 
-input_dir = SCRIPT_DIR / "input"
-output_dir_base = SCRIPT_DIR / "output"
+# Layout: image selection on the left, folder controls on the right
+left_col, right_col = st.columns([3, 1])
 
-choices = _list_inputs(input_dir)
-cols = st.columns(2)
-if "selected_input" not in st.session_state:
-    st.session_state["selected_input"] = choices[0].name if choices else None
+with right_col:
+    st.subheader("Folders")
+    default_images_folder = st.session_state.get("images_folder_name", "input")
+    default_bundle_folder = st.session_state.get("bundle_folder_name", "output")
+    images_folder = st.text_input(
+        "Images folder name",
+        value=default_images_folder,
+        help="Folder (under this app directory) containing original images.",
+    )
+    bundle_folder = st.text_input(
+        "Segmentation bundle folder name",
+        value=default_bundle_folder,
+        help="Folder (under this app directory) containing per-image bundles with objects and metadata.",
+    )
+    st.session_state["images_folder_name"] = images_folder.strip() or "input"
+    st.session_state["bundle_folder_name"] = bundle_folder.strip() or "output"
 
-for idx, p in enumerate(choices[:2]):
-    with cols[idx % 2]:
-        if p.exists():
-            st.image(str(p), use_container_width=True)
-            if st.button(f"Use {p.name}", key=f"select_{p.name}"):
-                st.session_state["selected_input"] = p.name
+# Resolve directories based on user inputs
+input_dir = SCRIPT_DIR / st.session_state["images_folder_name"]
+output_dir_base = SCRIPT_DIR / st.session_state["bundle_folder_name"]
 
-selected_name = st.session_state.get("selected_input")
-selected_path = (input_dir / selected_name) if selected_name else None
-if selected_path:
-    st.success(f"Selected: {selected_path.name}")
+with left_col:
+    choices = _list_inputs(input_dir)
+    if (
+        "selected_input" not in st.session_state
+        or st.session_state["selected_input"] not in [p.name for p in choices]
+    ):
+        st.session_state["selected_input"] = choices[0].name if choices else None
+
+    # Thumbnails and selectors (2-column grid)
+    thumb_cols = st.columns(2)
+    for idx, p in enumerate(choices[:2]):
+        with thumb_cols[idx % 2]:
+            if p.exists():
+                st.image(str(p), use_container_width=True)
+                if st.button(f"Use {p.name}", key=f"select_{p.name}"):
+                    st.session_state["selected_input"] = p.name
+
+    selected_name = st.session_state.get("selected_input")
+    selected_path = (input_dir / selected_name) if selected_name else None
+    if selected_path:
+        st.success(f"Selected: {selected_path.name}")
 
 st.subheader("Prompts (full overrides)")
 planner_override_key = "planner_prompt_override"
@@ -221,7 +247,7 @@ OUTPUT INSTRUCTIONS
 
 # Pre-fill prompt boxes with defaults if empty and selection available
 if selected_path is not None:
-    bundle = (SCRIPT_DIR / "output") / selected_path.stem
+    bundle = (SCRIPT_DIR / st.session_state.get("bundle_folder_name", "output")) / selected_path.stem
     if bundle.exists():
         shared_block, _sum, _roles = _collect_shared_context(bundle, ratio, margin)
         if not st.session_state[planner_override_key]:
