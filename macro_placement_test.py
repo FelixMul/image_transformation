@@ -23,6 +23,8 @@ def _vlm_request_critic(
     original_input_path: str,
     composite_path: str,
     prev_flex_json: Dict,
+    previous_critic_text: str,
+    previous_refiner_json: Dict | None,
     row_bad: List[Tuple[str, str]],
     col_bad: List[Tuple[str, str]],
     ratio: str,
@@ -32,7 +34,7 @@ def _vlm_request_critic(
     role_lines: List[str],
     context_note: str,
     api_key: str | None = None,
-    critic_prompt_override: str | None = None,
+    critic_custom_design_rules: str | None = None,
 ) -> Tuple[str, str]:
     """Return (critic_prompt, critic_raw_text). Temperature is fixed at 0.3.
 
@@ -50,16 +52,20 @@ def _vlm_request_critic(
     row_bad_str = ", ".join([f"({a}, {b})" for a, b in row_bad]) or "none"
     col_bad_str = ", ".join([f"({a}, {b})" for a, b in col_bad]) or "none"
 
+    # Use custom design rules if provided, otherwise use the passed best_practices
+    design_rules_to_use = critic_custom_design_rules.strip() if (critic_custom_design_rules and critic_custom_design_rules.strip()) else best_practices
+
     shared_context_block = _build_shared_prompt_context(
-        best_practices, summary_text, role_lines, row_bad_str, col_bad_str
+        design_rules_to_use, summary_text, role_lines, row_bad_str, col_bad_str
     )
 
+    # Always construct the full prompt with all dynamic data
     critic_prompt = f"""### PERSONA
 
 You are a professional Creative Director and a strict Design Critic.
 TASK
 
-Your goal is to evaluate the provided layout draft. Your primary focus is to determine how well the draft preserves the visual intent, balance, and core message of the original advertisement while adapting it to a new format. You must be specific, honest, and actionable. Do not generate a solution or JSON.
+Your goal is to evaluate the provided layout draft. Your primary focus is to determine how well the draft preserves the visual intent, balance, and core message of the original advertisement while adapting it to a new format. You must be specific, honest, and actionable. Do not generate a solution or JSON. If you are shown earlier conversation turns, use them to judge whether the latest refinement addressed your critique.
 
 {shared_context_block}
 EVALUATION & OUTPUT INSTRUCTIONS
@@ -94,9 +100,21 @@ Analyze the draft and provide your critique structured into the following sectio
 
 5. Actionable Improvement Plan:
 
-    Provide a clear, imperative list of changes for the next agent.
+    Provide a clear, imperative list of MINOR TWEAKS for the next agent. The refiner can ONLY adjust spacing, padding, and fine-tune positions - it CANNOT change container structure, direction, or reorder objects.
+    - Address objects one by one, referencing both their label and object_id (e.g., "CTA (object_id 3)").
+    - Focus on micro adjustments that preserve the macro structure.
 
-    Examples: "Change the root container's direction to 'column'." or "Create a nested row container for the logo and the tagline to keep them together." or "Swap the positions of the 'Main Image' and the 'Product Details' text block." """
+    GOOD examples:
+    - "Logo (object_id 5): Increase padding_px by 20 to separate it from the headline."
+    - "Hero text (object_id 2): Add gap_px of 15 to its parent column to open vertical breathing room."
+    - "CTA (object_id 3): Pin horizontally to center so it aligns with the logo."
+    - "Body copy (object_id 4): Add offset_px y:-10 to pull it closer to the hero image."
+    
+    BAD examples (DO NOT suggest these):
+    - "Change the root container's direction to 'column'"
+    - "Create a nested row container"
+    - "Swap the positions of objects"
+    - "Reorder the children array" """
 
     images_list = [contact_b64]
     # Do not include the original background-with-holes image; only add original input if desired
@@ -105,14 +123,19 @@ Analyze the draft and provide your critique structured into the following sectio
     if composite_b64:
         images_list.append(composite_b64)
 
-    # Allow full override of the critic prompt
-    if critic_prompt_override and critic_prompt_override.strip():
-        critic_prompt = critic_prompt_override
-
-    messages = [
-        {"role": "system", "content": "You are a strict design critic. Output only plain text. Be concise and specific."},
-        {"role": "user", "content": critic_prompt, "images": images_list},
+    messages: List[Dict[str, Union[str, List[str]]]] = [
+        {"role": "system", "content": "You are a strict design critic. Output only plain text. Be concise and specific."}
     ]
+    if previous_critic_text and previous_refiner_json:
+        prev_json_str = json.dumps(previous_refiner_json, indent=2)
+        messages.append(
+            {
+                "role": "assistant",
+                "content": prev_json_str,
+            }
+        )
+        messages.append({"role": "user", "content": previous_critic_text})
+    messages.append({"role": "user", "content": critic_prompt, "images": images_list})
 
     raw_text = ""
     try:
@@ -226,6 +249,127 @@ FlexNode = Dict[str, Union[str, int, float, bool, List[Dict]]]
 ALLOWED_JUSTIFY = {"start", "center", "end", "space_between", "space_around"}
 ALLOWED_ALIGN = {"start", "center", "end"}
 ALLOWED_DIRECTION = {"row", "column"}
+STICK_TO_EDGES = {"left", "right", "top", "bottom"}
+
+
+def _sanitize_padding(value: Union[int, Dict], oid: int) -> Dict[str, int]:
+    if isinstance(value, int):
+        if value < 0:
+            raise ValueError(f"padding_px for object_id {oid} must be non-negative")
+        return {"left": value, "right": value, "top": value, "bottom": value}
+    if isinstance(value, dict):
+        allowed_keys = {"left", "right", "top", "bottom"}
+        extra = set(value.keys()) - allowed_keys
+        if extra:
+            raise ValueError(
+                f"padding_px for object_id {oid} has unsupported keys: {sorted(extra)}"
+            )
+        result: Dict[str, int] = {"left": 0, "right": 0, "top": 0, "bottom": 0}
+        for key in result:
+            raw_val = value.get(key, 0)
+            if not isinstance(raw_val, int):
+                raise ValueError(
+                    f"padding_px[{key}] for object_id {oid} must be an integer"
+                )
+            if raw_val < 0:
+                raise ValueError(
+                    f"padding_px[{key}] for object_id {oid} must be non-negative"
+                )
+            result[key] = raw_val
+        return result
+    raise ValueError(
+        f"padding_px for object_id {oid} must be int or dict with left/right/top/bottom"
+    )
+
+
+def _sanitize_pin(value: Dict, oid: int) -> Dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"pin for object_id {oid} must be an object with axis keys")
+    allowed_keys = {"horizontal", "vertical"}
+    extra = set(value.keys()) - allowed_keys
+    if extra:
+        raise ValueError(f"pin for object_id {oid} has unsupported keys: {sorted(extra)}")
+    result: Dict[str, str] = {}
+    for axis in allowed_keys:
+        axis_val = value.get(axis)
+        if axis_val is None:
+            continue
+        if axis_val not in ALLOWED_ALIGN:
+            raise ValueError(
+                f"pin.{axis} for object_id {oid} must be one of {sorted(ALLOWED_ALIGN)}"
+            )
+        result[axis] = axis_val
+    return result
+
+
+def _sanitize_offset(value: Dict, oid: int) -> Dict[str, int]:
+    if value is None:
+        return {"x": 0, "y": 0}
+    if not isinstance(value, dict):
+        raise ValueError(f"offset_px for object_id {oid} must be an object with x/y")
+    allowed_keys = {"x", "y"}
+    extra = set(value.keys()) - allowed_keys
+    if extra:
+        raise ValueError(
+            f"offset_px for object_id {oid} has unsupported keys: {sorted(extra)}"
+        )
+    result: Dict[str, int] = {}
+    for axis in allowed_keys:
+        raw_val = value.get(axis, 0)
+        if not isinstance(raw_val, int):
+            raise ValueError(f"offset_px.{axis} for object_id {oid} must be an integer")
+        result[axis] = raw_val
+    return result
+
+
+def _sanitize_stick_to(value: Dict, oid: int) -> Dict[str, Union[List[str], int]]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"stick_to for object_id {oid} must be an object with edges and margin_px"
+        )
+    allowed_keys = {"edges", "margin_px"}
+    extra = set(value.keys()) - allowed_keys
+    if extra:
+        raise ValueError(
+            f"stick_to for object_id {oid} has unsupported keys: {sorted(extra)}"
+        )
+    edges = value.get("edges")
+    if not isinstance(edges, list) or not edges:
+        raise ValueError(f"stick_to.edges for object_id {oid} must be a non-empty list")
+    normalized_edges: List[str] = []
+    for edge in edges:
+        if not isinstance(edge, str):
+            raise ValueError(
+                f"stick_to.edges entries for object_id {oid} must be strings"
+            )
+        edge_lower = edge.lower()
+        if edge_lower not in STICK_TO_EDGES:
+            raise ValueError(
+                f"stick_to.edge '{edge}' for object_id {oid} is not supported"
+            )
+        if edge_lower in normalized_edges:
+            raise ValueError(
+                f"stick_to.edges for object_id {oid} contains duplicate '{edge_lower}'"
+            )
+        normalized_edges.append(edge_lower)
+    if "left" in normalized_edges and "right" in normalized_edges:
+        raise ValueError(
+            f"stick_to.edges for object_id {oid} cannot include both 'left' and 'right'"
+        )
+    if "top" in normalized_edges and "bottom" in normalized_edges:
+        raise ValueError(
+            f"stick_to.edges for object_id {oid} cannot include both 'top' and 'bottom'"
+        )
+    margin = value.get("margin_px", 0)
+    if not isinstance(margin, int):
+        raise ValueError(f"stick_to.margin_px for object_id {oid} must be an integer")
+    if margin < 0:
+        raise ValueError(f"stick_to.margin_px for object_id {oid} must be non-negative")
+    return {"edges": normalized_edges, "margin_px": margin}
 
 
 def _extract_json_maybe(content: str) -> str:
@@ -247,6 +391,13 @@ def _validate_flex_dsl(
     id_to_label: Dict[int, str],
     row_bad_pairs: set[frozenset[str]] | None = None,
     col_bad_pairs: set[frozenset[str]] | None = None,
+    *,
+    allow_object_tuning: bool = False,
+    allow_container_spacing: bool = False,
+    allow_container_align: bool = False,
+    forbid_root_spacing: bool = False,
+    drop_container_styling: bool = False,
+    sanitize: bool = False,
 ) -> Tuple[Dict, List[int]]:
     # Basic structure
     if not isinstance(data, dict):
@@ -306,12 +457,74 @@ def _validate_flex_dsl(
             raise ValueError("Only type=flex containers supported")
         if node.get("direction") not in ALLOWED_DIRECTION:
             raise ValueError("direction must be 'row' or 'column'")
-        if node.get("justify") not in ALLOWED_JUSTIFY:
+        justify_present = "justify" in node
+        align_present = "align" in node
+        justify = node.get("justify", "center")
+        align = node.get("align", "center")
+        if justify not in ALLOWED_JUSTIFY:
             raise ValueError("invalid justify")
-        if node.get("align") not in ALLOWED_ALIGN:
+        if align not in ALLOWED_ALIGN:
             raise ValueError("invalid align")
+        gap_present = "gap_px" in node
+        pad_present = "padding_px" in node
         gap = node.get("gap_px", 0)
         pad = node.get("padding_px", 0)
+        if drop_container_styling and sanitize:
+            node.pop("gap_px", None)
+            node.pop("padding_px", None)
+            node.pop("justify", None)
+            node.pop("align", None)
+            gap_present = False
+            pad_present = False
+            gap = 0
+            pad = 0
+            justify_present = False
+            align_present = False
+        if not allow_container_align:
+            if (justify_present and justify not in (None, "center")) or (align_present and align not in (None, "center")):
+                if sanitize:
+                    node.pop("justify", None)
+                    node.pop("align", None)
+                    justify_present = False
+                    align_present = False
+                else:
+                    raise ValueError("container align/justify not allowed in this mode")
+            elif sanitize:
+                if justify_present and justify in (None, "center"):
+                    node.pop("justify", None)
+                    justify_present = False
+                if align_present and align in (None, "center"):
+                    node.pop("align", None)
+                    align_present = False
+        if forbid_root_spacing and depth == 1:
+            if (gap_present and gap != 0) or (pad_present and pad != 0):
+                raise ValueError("root container cannot set gap_px or padding_px")
+            if sanitize:
+                if gap_present:
+                    node.pop("gap_px", None)
+                if pad_present:
+                    node.pop("padding_px", None)
+            if justify_present and justify != "center":
+                raise ValueError("root container cannot change justify")
+            if align_present and align != "center":
+                raise ValueError("root container cannot change align")
+            if sanitize:
+                if justify_present:
+                    node.pop("justify", None)
+                    justify_present = False
+                if align_present:
+                    node.pop("align", None)
+                    align_present = False
+        if not allow_container_spacing and not drop_container_styling:
+            if gap_present and gap not in (0, None):
+                raise ValueError("gap_px not allowed in this mode")
+            if pad_present and pad not in (0, None):
+                raise ValueError("padding_px not allowed in this mode")
+            if sanitize:
+                if gap_present:
+                    node.pop("gap_px", None)
+                if pad_present:
+                    node.pop("padding_px", None)
         if not isinstance(gap, int) or gap < 0:
             raise ValueError("gap_px must be non-negative int")
         if not isinstance(pad, int) or pad < 0:
@@ -332,13 +545,32 @@ def _validate_flex_dsl(
                 known = id_to_label.get(oid, "").strip()
                 if known and name.strip() != known:
                     raise ValueError(f"name mismatch for object_id {oid}: got '{name}', expected '{known}'")
+                if not allow_object_tuning:
+                    extras = set(ch.keys()) - {"object_id", "name"}
+                    if extras:
+                        if sanitize:
+                            for key in extras:
+                                ch.pop(key, None)
+                        else:
+                            raise ValueError(
+                                f"object_id {oid} includes unsupported fields {sorted(extras)} in baseline mode"
+                            )
+                else:
+                    padding_raw = ch.get("padding_px")
+                    _ = _sanitize_padding(padding_raw, oid) if padding_raw is not None else None
+                    pin_raw = ch.get("pin")
+                    _sanitize_pin(pin_raw, oid) if pin_raw is not None else None
+                    offset_raw = ch.get("offset_px")
+                    _sanitize_offset(offset_raw, oid) if offset_raw is not None else None
+                    stick_raw = ch.get("stick_to")
+                    _sanitize_stick_to(stick_raw, oid) if stick_raw is not None else None
             else:
                 # nested container
                 validate_container(ch, depth + 1)
         # After validating children, check pairwise non-nesting constraints at this container level
         check_conflicts(node)
 
-    validate_container(root, 1)
+        validate_container(root, 1)
 
     # Coverage and duplicates
     seen_sorted = sorted(seen_ids)
@@ -414,7 +646,16 @@ def _measure_flex_node(node: Dict, images: Dict[int, Image.Image]) -> Tuple[int,
         except Exception:
             return 0, 0
         img = images.get(oid)
-        return img.size if img is not None else (0, 0)
+        padding = node.get("padding_px")
+        pad = (
+            _sanitize_padding(padding, oid)
+            if padding is not None
+            else {"left": 0, "right": 0, "top": 0, "bottom": 0}
+        )
+        width, height = img.size if img is not None else (0, 0)
+        width = max(0, width + pad["left"] + pad["right"])
+        height = max(0, height + pad["top"] + pad["bottom"])
+        return (width, height)
 
     # Container
     direction = node.get("direction", "row")
@@ -450,8 +691,8 @@ def _place_flex_container(node: Dict, origin: Tuple[int, int], size: Tuple[int, 
     cw, ch = size
 
     direction = node.get("direction", "row")
-    justify = node.get("justify", "start")
-    align = node.get("align", "start")
+    justify = node.get("justify", "center")
+    align = node.get("align", "center")
     gap_px = int(node.get("gap_px", 0))
     padding_px = int(node.get("padding_px", 0))
 
@@ -461,6 +702,149 @@ def _place_flex_container(node: Dict, origin: Tuple[int, int], size: Tuple[int, 
     inner_h = max(0, ch - 2 * padding_px)
 
     children: List[Dict] = node.get("children", [])
+
+    def place_object_node(obj_node: Dict, slot_origin: Tuple[int, int], slot_size: Tuple[int, int]) -> None:
+        oid = int(obj_node.get("object_id", -1))
+        img = images.get(oid)
+        img_w, img_h = img.size if img is not None else (0, 0)
+
+        padding_raw = obj_node.get("padding_px")
+        padding = (
+            _sanitize_padding(padding_raw, oid)
+            if padding_raw is not None
+            else {"left": 0, "right": 0, "top": 0, "bottom": 0}
+        )
+        pin_raw = obj_node.get("pin")
+        pin = _sanitize_pin(pin_raw, oid) if pin_raw is not None else {}
+        offset_raw = obj_node.get("offset_px")
+        offset = (
+            _sanitize_offset(offset_raw, oid)
+            if offset_raw is not None
+            else {"x": 0, "y": 0}
+        )
+        stick_raw = obj_node.get("stick_to")
+        stick = _sanitize_stick_to(stick_raw, oid) if stick_raw is not None else {}
+
+        slot_x1, slot_y1 = slot_origin
+        slot_w, slot_h = slot_size
+        slot_x2 = slot_x1 + slot_w
+        slot_y2 = slot_y1 + slot_h
+
+        inner_x1 = slot_x1 + padding["left"]
+        inner_y1 = slot_y1 + padding["top"]
+        inner_x2 = max(inner_x1, slot_x2 - padding["right"])
+        inner_y2 = max(inner_y1, slot_y2 - padding["bottom"])
+        inner_w_local = max(0, inner_x2 - inner_x1)
+        inner_h_local = max(0, inner_y2 - inner_y1)
+
+        scale = 1.0
+        if img is not None and img_w > 0 and img_h > 0:
+            scale_candidates: List[float] = [1.0]
+            if inner_w_local > 0:
+                scale_candidates.append(inner_w_local / img_w)
+            if inner_h_local > 0:
+                scale_candidates.append(inner_h_local / img_h)
+            scale = max(0.0, min(scale_candidates)) if scale_candidates else 1.0
+            target_w = int(round(img_w * scale))
+            target_h = int(round(img_h * scale))
+        else:
+            target_w = inner_w_local
+            target_h = inner_h_local
+
+        target_w = max(0, min(target_w, inner_w_local))
+        target_h = max(0, min(target_h, inner_h_local))
+
+        horizontal_mode = pin.get("horizontal")
+        if horizontal_mode is None:
+            horizontal_mode = align if direction == "column" else "start"
+        vertical_mode = pin.get("vertical")
+        if vertical_mode is None:
+            vertical_mode = align if direction == "row" else "start"
+
+        remaining_w = max(0, inner_w_local - target_w)
+        remaining_h = max(0, inner_h_local - target_h)
+
+        if horizontal_mode == "center":
+            base_x = inner_x1 + remaining_w / 2
+        elif horizontal_mode == "end":
+            base_x = inner_x2 - target_w
+        else:
+            base_x = inner_x1
+
+        if vertical_mode == "center":
+            base_y = inner_y1 + remaining_h / 2
+        elif vertical_mode == "end":
+            base_y = inner_y2 - target_h
+        else:
+            base_y = inner_y1
+
+        if stick:
+            margin = stick.get("margin_px", 0)
+            edges = stick.get("edges", [])
+            if "left" in edges:
+                base_x = inner_x1 + margin
+            elif "right" in edges:
+                base_x = inner_x2 - margin - target_w
+            if "top" in edges:
+                base_y = inner_y1 + margin
+            elif "bottom" in edges:
+                base_y = inner_y2 - margin - target_h
+
+        base_x += offset.get("x", 0)
+        base_y += offset.get("y", 0)
+
+        min_x = inner_x1
+        max_x = inner_x2 - target_w
+        if max_x < min_x:
+            max_x = min_x
+        base_x = min(max(base_x, min_x), max_x)
+
+        min_y = inner_y1
+        max_y = inner_y2 - target_h
+        if max_y < min_y:
+            max_y = min_y
+        base_y = min(max(base_y, min_y), max_y)
+
+        final_x1 = int(round(base_x))
+        final_y1 = int(round(base_y))
+        final_x2 = final_x1 + int(target_w)
+        final_y2 = final_y1 + int(target_h)
+
+        if final_x2 > inner_x2:
+            delta = final_x2 - inner_x2
+            final_x1 -= delta
+            final_x2 -= delta
+        if final_x1 < inner_x1:
+            delta = inner_x1 - final_x1
+            final_x1 += delta
+            final_x2 += delta
+        if final_y2 > inner_y2:
+            delta = final_y2 - inner_y2
+            final_y1 -= delta
+            final_y2 -= delta
+        if final_y1 < inner_y1:
+            delta = inner_y1 - final_y1
+            final_y1 += delta
+            final_y2 += delta
+
+        placement_entry: Dict[str, Union[int, float, Dict, List]] = {
+            "object_id": oid,
+            "cell": parent_cell,
+            "box": [int(final_x1), int(final_y1), int(final_x2), int(final_y2)],
+            "scale": float(scale),
+        }
+        if padding_raw is not None:
+            placement_entry["padding_px"] = padding
+        if pin_raw is not None and pin:
+            placement_entry["pin"] = pin
+        if offset_raw is not None:
+            placement_entry["offset_px"] = offset
+        elif offset.get("x", 0) or offset.get("y", 0):
+            placement_entry["offset_px"] = offset
+        if stick_raw is not None and stick:
+            placement_entry["stick_to"] = stick
+
+        placements.append(placement_entry)
 
     # Measure intrinsic sizes for children (objects and nested containers)
     child_sizes: List[Tuple[int, int]] = []
@@ -472,7 +856,7 @@ def _place_flex_container(node: Dict, origin: Tuple[int, int], size: Tuple[int, 
                 child_sizes.append((0, 0))
                 continue
             img = images.get(oid)
-            child_sizes.append(img.size if img is not None else (0, 0))
+            child_sizes.append(_measure_flex_node(ch, images))
         else:
             child_sizes.append(_measure_flex_node(ch, images))
 
@@ -514,15 +898,11 @@ def _place_flex_container(node: Dict, origin: Tuple[int, int], size: Tuple[int, 
 
             px = cur_x
             if "object_id" in ch:
-                oid = int(ch["object_id"])
-                placements.append({
-                    "object_id": oid,
-                    "cell": parent_cell,
-                    "box": [int(px), int(py), int(px + w), int(py + h)],
-                    "scale": 1.0,
-                })
+                place_object_node(ch, (px, py), (w, h))
             else:
-                _place_flex_container(ch, (px, py), (w, h), images, placements, parent_cell)
+                _place_flex_container(
+                    ch, (px, py), (w, h), images, placements, parent_cell
+                )
             cur_x = cur_x + w + gap_between
 
     else:
@@ -563,15 +943,11 @@ def _place_flex_container(node: Dict, origin: Tuple[int, int], size: Tuple[int, 
 
             py = cur_y
             if "object_id" in ch:
-                oid = int(ch["object_id"])
-                placements.append({
-                    "object_id": oid,
-                    "cell": parent_cell,
-                    "box": [int(px), int(py), int(px + w), int(py + h)],
-                    "scale": 1.0,
-                })
+                place_object_node(ch, (px, py), (w, h))
             else:
-                _place_flex_container(ch, (px, py), (w, h), images, placements, parent_cell)
+                _place_flex_container(
+                    ch, (px, py), (w, h), images, placements, parent_cell
+                )
             cur_y = cur_y + h + gap_between
 
 
@@ -717,7 +1093,7 @@ def _vlm_request_flex(
     margin_pct: float,
     planner_addendum: str = "",
     api_key: str | None = None,
-    planner_prompt_override: str | None = None,
+    planner_custom_design_rules: str | None = None,
 ) -> Tuple[Dict, str, str, List[str], str, str]:
     with open(results_json_path, "r", encoding="utf-8") as f:
         items = json.load(f)
@@ -757,18 +1133,29 @@ def _vlm_request_flex(
 
     w, h = canvas_size
     aspect_family = _ratio_family(ratio)
-    best_practices = _best_practices_text(aspect_family)
+    
+    # Use custom design rules if provided, otherwise use defaults
+    if planner_custom_design_rules and planner_custom_design_rules.strip():
+        best_practices = planner_custom_design_rules.strip()
+    else:
+        best_practices = _best_practices_text(aspect_family)
 
     shared_context_block = _build_shared_prompt_context(
         best_practices, summary_text, role_lines, row_bad_str, col_bad_str
     )
 
+    # Always construct the full prompt with all dynamic data
     base_prompt = f"""### PERSONA
 
 You are a pragmatic Layout Planner.
 TASK
 
 Your goal is to generate a valid first-draft layout in the Flex DSL JSON format. Analyze the original image to understand its visual intent and use the object data as your guide. Your layout must fit within the provided target canvas.
+
+IMPORTANT: You must work strictly at the MACRO level:
+- You may only decide container directions (row/column) and which objects belong in each container.
+- Do NOT set or mention any spacing or alignment properties (no gap_px, padding_px, justify, align, pin, offset, stick_to).
+- Do NOT invent new containers beyond depth 2, and do not duplicate or drop objects.
 
 {shared_context_block}
 OUTPUT INSTRUCTIONS
@@ -780,9 +1167,6 @@ OUTPUT INSTRUCTIONS
 ADDITIONAL GUIDANCE (optional):
 {planner_addendum}
 """
-
-    if planner_prompt_override and planner_prompt_override.strip():
-        base_prompt = planner_prompt_override
 
     api_client = get_api_client(api_type, api_key=api_key)
     contact_b64 = _encode_pil_to_b64_png(contact_sheet)
@@ -834,7 +1218,7 @@ def _vlm_request_refine(
     extra_instructions: str = "",
     refiner_addendum: str = "",
     api_key: str | None = None,
-    refiner_prompt_override: str | None = None,
+    refiner_custom_design_rules: str | None = None,
 ) -> Tuple[Dict, str, str]:
     """
     Request a refined Flex DSL JSON from the VLM, given the previous composite render and previous Flex JSON.
@@ -843,7 +1227,12 @@ def _vlm_request_refine(
     w, h = canvas_size
     iw, ih = Image.open(background_path).size
     aspect_family = _ratio_family(ratio)
-    best_practices = _best_practices_text(aspect_family)
+    
+    # Use custom design rules if provided, otherwise use defaults
+    if refiner_custom_design_rules and refiner_custom_design_rules.strip():
+        best_practices = refiner_custom_design_rules.strip()
+    else:
+        best_practices = _best_practices_text(aspect_family)
 
     row_bad_str = ", ".join([f"({a}, {b})" for a, b in row_bad]) or "none"
     col_bad_str = ", ".join([f"({a}, {b})" for a, b in col_bad]) or "none"
@@ -853,37 +1242,7 @@ def _vlm_request_refine(
 
     prev_json_str = json.dumps(prev_flex_json, indent=2)
 
-    prompt_text = f"""### PERSONA
-
-You are an expert Layout Engineer and a Problem-Solver.
-TASK
-
-Your goal is to fix a flawed design by writing a new, superior Flex DSL JSON. You have been provided with the previous attempt, the original design goal, and a detailed critique from a Creative Director. Your new JSON must directly address all issues raised in the critique.
-
-{shared_context_block}
-CRITIC'S REVIEW (YOUR TO-DO LIST)
-You must fix the following issues:
-{critic_text}
-OUTPUT INSTRUCTIONS
-
-    Your output must be ONLY the new, corrected, and valid JSON object.
-
-    Address all points from the critic's review.
-
-    You are authorized to make radical changes to the previous JSON structure to fix the reported problems.
-
-    Do not include any explanations, comments, or markdown code fences.
-
-ADDITIONAL GUIDANCE (optional):
-{refiner_addendum}
-"""
-
-    if extra_instructions:
-        prompt_text += "\n\nCorrections from validator (fix these strictly):\n" + extra_instructions
-
-    if refiner_prompt_override and refiner_prompt_override.strip():
-        prompt_text = refiner_prompt_override
-
+    # Prepare images
     api_client = get_api_client(api_type, api_key=api_key)
     contact_b64 = _encode_pil_to_b64_png(contact_sheet)
     with open(background_path, "rb") as f_bg:
@@ -897,10 +1256,64 @@ ADDITIONAL GUIDANCE (optional):
     with open(composite_prev_path, "rb") as f_prev:
         composite_b64 = base64.b64encode(f_prev.read()).decode("utf-8")
 
-    messages = [
-        {"role": "system", "content": "You are a JSON generator. Follow HARD CONSTRAINTS strictly. Output ONLY valid JSON matching the schema. No markdown, no explanations."},
-        {"role": "user", "content": prompt_text, "images": [contact_b64, background_b64] + ([original_b64] if original_b64 else []) + [composite_b64]},
+    # Build chat-based conversation format
+    # Turn 1: Initial task description with context
+    initial_task_sections = [
+        "### ROLE\n\nYou are the Layout Improver.",
+        "### OBJECTIVE\nYour job is to make MINOR adjustments to Flex JSON layouts. You fine-tune object placement, NOT redesign layouts.",
+        shared_context_block,
+        "### STRICT RULES\n\n1. DO NOT CHANGE CONTAINER STRUCTURE:\n   - You MUST NOT change 'direction' (row/column) in ANY container, including root\n   - You MUST NOT add or remove containers\n   - You MUST NOT add or remove objects\n   - Do not reorder the children arrays\n\n2. ROOT CONTAINER IS FROZEN:\n   - No gap_px, padding_px, justify, or align changes at the root\n\n3. ALLOWED TWEAKS FOR NON-ROOT ITEMS:\n   - gap_px (only on non-root containers)\n   - padding_px (only on non-root containers)\n   - justify and align (only on non-root containers; preserve macro intent)\n   - Object-level padding_px, pin, offset_px, stick_to\n\n4. If feedback suggests structural changes (like \"change direction to column\"), IGNORE those. You only make micro adjustments.",
     ]
+    if refiner_addendum:
+        initial_task_sections.append("### ADDITIONAL GUIDANCE\n" + refiner_addendum)
+    
+    initial_task = "\n\n".join(initial_task_sections)
+    initial_task += "\n\n### OUTPUT FORMAT\nReturn ONLY the JSON object—no prose, no markdown."
+
+    # Turn 2: Show what the refiner previously generated (its own output)
+    assistant_previous_output = prev_json_str
+
+    # Turn 3: Critic's feedback on that output
+    critic_feedback_sections = [
+        "Here is the feedback from the Creative Director on your previous layout:",
+        "",
+        "### CRITIC'S EVALUATION",
+        critic_text,
+        "",
+        "### YOUR TASK NOW",
+        "Based on this critique, improve the layout JSON. Remember:",
+        "- Only make MINOR tweaks (padding, gaps, pins, offsets)",
+        "- Do NOT change container structure, direction, or object order",
+        "- Address every specific point the critic raised",
+        "- Return ONLY the improved JSON—no explanations",
+    ]
+    
+    if extra_instructions:
+        critic_feedback_sections.append("\n### VALIDATION ERRORS (fix these strictly)")
+        critic_feedback_sections.append(extra_instructions)
+    
+    critic_feedback = "\n".join(critic_feedback_sections)
+
+    # Construct multi-turn messages
+    messages = [
+        {"role": "system", "content": "You are a Layout Improver. You iteratively refine Flex JSON layouts based on feedback. Follow constraints strictly. Output ONLY valid JSON."},
+        {"role": "user", "content": initial_task, "images": [contact_b64, background_b64] + ([original_b64] if original_b64 else []) + [composite_b64]},
+        {"role": "assistant", "content": assistant_previous_output},
+        {"role": "user", "content": critic_feedback},
+    ]
+
+    # For logging purposes, reconstruct the full prompt text
+    prompt_text = f"""=== CONVERSATION-BASED REFINEMENT ===
+
+[USER - Initial Task]
+{initial_task}
+
+[ASSISTANT - Your Previous Output]
+{assistant_previous_output}
+
+[USER - Critic Feedback & Improvement Request]
+{critic_feedback}
+"""
     raw_text = ""
     try:
         response = api_client.chat_completion(messages=messages, temperature=temperature)
@@ -947,9 +1360,9 @@ def run_macro_only(
     api_key: str | None = None,
     planner_addendum: str = "",
     refiner_addendum: str = "",
-    planner_prompt_override: str | None = None,
-    critic_prompt_override: str | None = None,
-    refiner_prompt_override: str | None = None,
+    planner_custom_design_rules: str | None = None,
+    critic_custom_design_rules: str | None = None,
+    refiner_custom_design_rules: str | None = None,
 ) -> None:
     print("\n=== Running macro placement with Flex DSL and iterative refinement ===")
 
@@ -1038,7 +1451,7 @@ def run_macro_only(
             margin,
             planner_addendum=planner_addendum,
             api_key=api_key,
-            planner_prompt_override=planner_prompt_override,
+            planner_custom_design_rules=planner_custom_design_rules,
         )
         with open(out_vlm_0 / "layout_flex_iter_00.json", "w", encoding="utf-8") as f:
             json.dump(flex_raw, f, indent=2)
@@ -1059,10 +1472,20 @@ def run_macro_only(
                 id_to_label,
                 row_bad_pairs={frozenset({a, b}) for a, b in row_bad},
                 col_bad_pairs={frozenset({a, b}) for a, b in col_bad},
+                allow_container_spacing=False,
+                allow_container_align=False,
+                forbid_root_spacing=True,
+                drop_container_styling=True,
+                sanitize=True,
             )
         except Exception as e:
             print(f"[validate] Baseline layout failed validation: {e}")
             (out_text_0 / "flex_validation_error_iter_00.txt").write_text(str(e), encoding="utf-8")
+            failed_path = out_vlm_0 / "failed_output.txt"
+            with open(failed_path, "a", encoding="utf-8") as f_failed:
+                f_failed.write(f"validation_error: {e}\n")
+                f_failed.write(json.dumps(flex_raw, indent=2))
+                f_failed.write("\n---\n")
             # Continue — inputs already saved; subsequent refine step may fix
             pass
 
@@ -1095,6 +1518,8 @@ def run_macro_only(
 
     # Refinement iterations
     contact_sheet_img = sheet  # reuse in memory
+    previous_critic_text = ""
+    previous_refiner_json: Dict | None = None
     for i in range(1, max(0, refine_iters) + 1):
         out_final_i, out_text_i, out_img_i, out_vlm_i, out_layout_i = iter_dirs(base_out, i)
         # Save composite_prev reference
@@ -1120,6 +1545,8 @@ def run_macro_only(
                 original_input_path or str(bg_path),
                 str(draft_path_prev),
                 flex_raw,
+                previous_critic_text,
+                previous_refiner_json,
                 row_bad,
                 col_bad,
                 ratio,
@@ -1129,7 +1556,7 @@ def run_macro_only(
                 role_lines,
                 context_note,
                 api_key=api_key,
-                critic_prompt_override=critic_prompt_override,
+                critic_custom_design_rules=critic_custom_design_rules,
             )
             (out_text_i / f"critic_prompt_iter_{i:02d}.txt").write_text(critic_prompt, encoding="utf-8")
             (out_vlm_i / f"critic_raw_iter_{i:02d}.txt").write_text(critic_raw, encoding="utf-8")
@@ -1157,7 +1584,7 @@ def run_macro_only(
                 extra_instr,
                 refiner_addendum=refiner_addendum,
                 api_key=api_key,
-                refiner_prompt_override=refiner_prompt_override,
+                refiner_custom_design_rules=refiner_custom_design_rules,
             )
             with open(out_vlm_i / f"layout_flex_iter_{i:02d}.json", "w", encoding="utf-8") as f:
                 json.dump(refine_raw, f, indent=2)
@@ -1171,10 +1598,19 @@ def run_macro_only(
                     id_to_label,
                     row_bad_pairs={frozenset({a, b}) for a, b in row_bad},
                     col_bad_pairs={frozenset({a, b}) for a, b in col_bad},
+                    allow_object_tuning=True,
+                    allow_container_spacing=True,
+                    allow_container_align=True,
+                    forbid_root_spacing=True,
                 )
             except Exception as e:
                 print(f"[validate] Iter {i:02d} refine failed validation: {e}")
                 (out_text_i / f"flex_validation_error_iter_{i:02d}.txt").write_text(str(e), encoding="utf-8")
+                failed_path = out_vlm_i / f"failed_output_iter_{i:02d}.txt"
+                with open(failed_path, "a", encoding="utf-8") as f_failed:
+                    f_failed.write(f"validation_error: {e}\n")
+                    f_failed.write(json.dumps(refine_raw, indent=2))
+                    f_failed.write("\n---\n")
                 # Save inputs are already persisted; Retry once with explicit validator feedback
                 extra_instr = str(e)
                 refine_raw, refine_prompt, refine_raw_text = _vlm_request_refine(
@@ -1197,7 +1633,7 @@ def run_macro_only(
                     extra_instr,
                     refiner_addendum=refiner_addendum,
                     api_key=api_key,
-                    refiner_prompt_override=refiner_prompt_override,
+                    refiner_custom_design_rules=refiner_custom_design_rules,
                 )
                 with open(out_vlm_i / f"layout_flex_iter_{i:02d}_retry.json", "w", encoding="utf-8") as f:
                     json.dump(refine_raw, f, indent=2)
@@ -1211,10 +1647,19 @@ def run_macro_only(
                         id_to_label,
                         row_bad_pairs={frozenset({a, b}) for a, b in row_bad},
                         col_bad_pairs={frozenset({a, b}) for a, b in col_bad},
+                        allow_object_tuning=True,
+                        allow_container_spacing=True,
+                        allow_container_align=True,
+                        forbid_root_spacing=True,
                     )
                 except Exception as e2:
                     print(f"[validate] Iter {i:02d} refine retry failed validation: {e2}")
                     (out_text_i / f"flex_validation_error_iter_{i:02d}_retry.txt").write_text(str(e2), encoding="utf-8")
+                    failed_retry_path = out_vlm_i / f"failed_output_iter_{i:02d}_retry.txt"
+                    with open(failed_retry_path, "a", encoding="utf-8") as f_failed:
+                        f_failed.write(f"validation_error: {e2}\n")
+                        f_failed.write(json.dumps(refine_raw, indent=2))
+                        f_failed.write("\n---\n")
                     # do not raise — we want artifacts preserved for inspection
                     pass
 
@@ -1259,6 +1704,8 @@ def run_macro_only(
 
         # Update current flex_raw for next iteration input
         flex_raw = refine_raw
+        previous_refiner_json = refine_raw
+        previous_critic_text = critic_raw
 
     # Write timer at the base_out level
     timer.write_to_file(str(base_out / "time_log.txt"))

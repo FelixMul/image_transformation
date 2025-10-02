@@ -86,7 +86,7 @@ with left_col:
 
     # Thumbnails and selectors (2-column grid)
     thumb_cols = st.columns(2)
-    for idx, p in enumerate(choices[:2]):
+    for idx, p in enumerate(choices):
         with thumb_cols[idx % 2]:
             if p.exists():
                 st.image(str(p), use_container_width=True)
@@ -98,172 +98,58 @@ with left_col:
     if selected_path:
         st.success(f"Selected: {selected_path.name}")
 
-st.subheader("Prompts (full overrides)")
-planner_override_key = "planner_prompt_override"
-critic_override_key = "critic_prompt_override"
-refiner_override_key = "refiner_prompt_override"
+st.subheader("Design Rules (Custom Guiding Principles)")
+st.caption("Customize the design rules below. Leave empty to use defaults. All other prompt components (object data, constraints, JSON schema) are automatically included.")
+planner_rules_key = "planner_custom_design_rules"
+critic_rules_key = "critic_custom_design_rules"
+refiner_rules_key = "refiner_custom_design_rules"
 
-if planner_override_key not in st.session_state:
-    st.session_state[planner_override_key] = ""
-if critic_override_key not in st.session_state:
-    st.session_state[critic_override_key] = ""
-if refiner_override_key not in st.session_state:
-    st.session_state[refiner_override_key] = ""
+if planner_rules_key not in st.session_state:
+    st.session_state[planner_rules_key] = ""
+if critic_rules_key not in st.session_state:
+    st.session_state[critic_rules_key] = ""
+if refiner_rules_key not in st.session_state:
+    st.session_state[refiner_rules_key] = ""
 
-def _collect_shared_context(bundle: Path, ratio: str, margin: float) -> tuple[str, str, list[str]]:
-    results_json_path = bundle / "results.json"
-    with open(results_json_path, "r", encoding="utf-8") as f:
-        items = json.load(f)
-    # Use original background to compute canvas size for normalization context
-    bg_path = bundle / "background.png"
-    from PIL import Image as _PILImage
-    ow, oh = _PILImage.open(bg_path).convert("RGBA").size
-    canvas_size = compute_canvas_size((ow, oh), ratio)
-    summary_lines = []
-    role_lines = []
-    for it in items:
-        oid = int(it["object_id"])
-        label = it.get("label", "")
-        low = label.lower()
-        if "logo" in low:
-            role = "logo"
-        elif "cta" in low:
-            role = "cta"
-        elif "text" in low or "copy" in low:
-            role = "text"
-        elif "design" in low or "shape" in low or "element" in low:
-            role = "design"
-        else:
-            role = "image"
-        x1, y1, x2, y2 = it.get("bounding_box", [0, 0, 0, 0])
-        nx1 = round(x1 / max(1, ow), 4)
-        ny1 = round(y1 / max(1, oh), 4)
-        nx2 = round(x2 / max(1, ow), 4)
-        ny2 = round(y2 / max(1, oh), 4)
-        summary_lines.append(f"id={oid}, name='{label}', role={role}, bbox_norm=[{nx1},{ny1},{nx2},{ny2}]")
-        role_lines.append(f"{oid}:{role}")
-    summary_text = "\n".join(summary_lines)
-    row_bad, col_bad = _compute_nesting_conflicts(str(results_json_path), canvas_size, margin)
-    row_bad_str = ", ".join([f"({a}, {b})" for a, b in row_bad]) or "none"
-    col_bad_str = ", ".join([f"({a}, {b})" for a, b in col_bad]) or "none"
+def _get_default_design_rules(ratio: str) -> str:
+    """Get the default design rules for the given aspect ratio."""
     aspect_family = _ratio_family(ratio)
-    best_practices = _best_practices_text(aspect_family)
-    shared_context_block = _build_shared_prompt_context(best_practices, summary_text, role_lines, row_bad_str, col_bad_str)
-    return shared_context_block, summary_text, role_lines
+    return _best_practices_text(aspect_family)
 
-def _default_planner_prompt(shared_context_block: str) -> str:
-    return (
-        """### PERSONA
-
-You are a pragmatic Layout Planner.
-TASK
-
-Your goal is to generate a valid first-draft layout in the Flex DSL JSON format. Analyze the original image to understand its visual intent and use the object data as your guide. Your layout must fit within the provided target canvas.
-
-"""
-        + shared_context_block
-        + """
-OUTPUT INSTRUCTIONS
-
-    Your output must be ONLY the valid JSON object.
-
-    Do not include any explanations, comments, or markdown code fences."""
-    )
-
-def _default_critic_prompt(shared_context_block: str) -> str:
-    return (
-        """### PERSONA
-
-You are a professional Creative Director and a strict Design Critic.
-TASK
-
-Your goal is to evaluate the provided layout draft. Your primary focus is to determine how well the draft preserves the visual intent, balance, and core message of the original advertisement while adapting it to a new format. You must be specific, honest, and actionable. Do not generate a solution or JSON.
-
-"""
-        + shared_context_block
-        + """
-EVALUATION & OUTPUT INSTRUCTIONS
-
-Analyze the draft and provide your critique structured into the following sections. Be concise but specific.
-
-1. Overall Score (out of 10):
-
-    A single number from 0 to 10. (10=Perfect, 7=Acceptable, <5=Major flaws).
-
-2. Preservation of Original Intent:
-
-    How well does the draft maintain the original's visual hierarchy?
-
-    Is the focus on the correct elements (e.g., the product, the main message)?
-
-    Does the new layout feel like a professional adaptation or a random assortment of parts?
-
-3. Hard Constraint Violations:
-
-    Did the layout violate any of the non-negotiable rules from the CORE CONTEXT?
-
-    Name the specific objects and rules that were broken (e.g., "Violates Row Nesting Conflict: ('Logo', 'Main Image')").
-
-4. Composition & Design Issues:
-
-    Comment on balance, alignment, negative space, and visual flow.
-
-    Is the logo placement appropriate? Is the Call-to-Action (CTA) prominent and logically placed?
-
-    Are there any awkward gaps, crowded areas, or margin violations?
-
-5. Actionable Improvement Plan:
-
-    Provide a clear, imperative list of changes for the next agent.
-
-    Examples: "Change the root container's direction to 'column'." or "Create a nested row container for the logo and the tagline to keep them together." or "Swap the positions of the 'Main Image' and the 'Product Details' text block.""" 
-    )
-
-def _default_refiner_prompt(shared_context_block: str) -> str:
-    return (
-        """### PERSONA
-
-You are an expert Layout Engineer and a Problem-Solver.
-TASK
-
-Your goal is to fix a flawed design by writing a new, superior Flex DSL JSON. You have been provided with the previous attempt, the original design goal, and a detailed critique from a Creative Director. Your new JSON must directly address all issues raised in the critique.
-
-"""
-        + shared_context_block
-        + """
-CRITIC'S REVIEW (YOUR TO-DO LIST)
-You must fix the following issues:
-<Insert critic review here after baseline>
-OUTPUT INSTRUCTIONS
-
-    Your output must be ONLY the new, corrected, and valid JSON object.
-
-    Address all points from the critic's review.
-
-    You are authorized to make radical changes to the previous JSON structure to fix the reported problems.
-
-    Do not include any explanations, comments, or markdown code fences."""
-    )
-
-# Pre-fill prompt boxes with defaults if empty and selection available
+# Pre-fill design rules boxes with defaults if empty and selection available
 if selected_path is not None:
     bundle = (SCRIPT_DIR / st.session_state.get("bundle_folder_name", "output")) / selected_path.stem
     if bundle.exists():
-        shared_block, _sum, _roles = _collect_shared_context(bundle, ratio, margin)
-        if not st.session_state[planner_override_key]:
-            st.session_state[planner_override_key] = _default_planner_prompt(shared_block)
-        if not st.session_state[critic_override_key]:
-            st.session_state[critic_override_key] = _default_critic_prompt(shared_block)
-        if not st.session_state[refiner_override_key]:
-            st.session_state[refiner_override_key] = _default_refiner_prompt(shared_block)
+        default_rules = _get_default_design_rules(ratio)
+        if not st.session_state[planner_rules_key]:
+            st.session_state[planner_rules_key] = default_rules
+        if not st.session_state[critic_rules_key]:
+            st.session_state[critic_rules_key] = default_rules
+        if not st.session_state[refiner_rules_key]:
+            st.session_state[refiner_rules_key] = default_rules
 
-planner_prompt_override = st.text_area("Initial layout prompt (full)", value=st.session_state[planner_override_key], height=320)
-critic_prompt_override = st.text_area("Critic prompt (full)", value=st.session_state[critic_override_key], height=240)
-refiner_prompt_override = st.text_area("Refiner prompt (full)", value=st.session_state[refiner_override_key], height=240)
+planner_custom_design_rules = st.text_area(
+    "Planner design rules", 
+    value=st.session_state[planner_rules_key], 
+    height=150,
+    help="Custom design rules for the initial layout planner. Leave empty to use defaults based on aspect ratio."
+)
+critic_custom_design_rules = st.text_area(
+    "Critic design rules", 
+    value=st.session_state[critic_rules_key], 
+    height=150,
+    help="Custom design rules for the critic. Leave empty to use defaults based on aspect ratio."
+)
+refiner_custom_design_rules = st.text_area(
+    "Refiner design rules", 
+    value=st.session_state[refiner_rules_key], 
+    height=150,
+    help="Custom design rules for the layout refiner. Leave empty to use defaults based on aspect ratio."
+)
 
-st.session_state[planner_override_key] = planner_prompt_override
-st.session_state[critic_override_key] = critic_prompt_override
-st.session_state[refiner_override_key] = refiner_prompt_override
+st.session_state[planner_rules_key] = planner_custom_design_rules
+st.session_state[critic_rules_key] = critic_custom_design_rules
+st.session_state[refiner_rules_key] = refiner_custom_design_rules
 
 run_col1, run_col2 = st.columns([1, 3])
 with run_col1:
@@ -276,57 +162,6 @@ gallery_box = st.container()
 
 def _bundle_dir_for(image_path: Path) -> Path:
     return output_dir_base / image_path.stem
-
-def _build_default_planner_prompt(bundle: Path, ratio: str, canvas_size: tuple[int, int]) -> str:
-    # Re-create the same logic as in _vlm_request_flex to show a default prompt
-    results_json_path = bundle / "results.json"
-    with open(results_json_path, "r", encoding="utf-8") as f:
-        items = json.load(f)
-    iw, ih = (canvas_size[0], canvas_size[1])
-    summary_lines = []
-    role_lines = []
-    for it in items:
-        oid = int(it["object_id"])
-        label = it.get("label", "")
-        low = label.lower()
-        if "logo" in low:
-            role = "logo"
-        elif "cta" in low:
-            role = "cta"
-        elif "text" in low or "copy" in low:
-            role = "text"
-        elif "design" in low or "shape" in low or "element" in low:
-            role = "design"
-        else:
-            role = "image"
-        x1, y1, x2, y2 = it.get("bounding_box", [0, 0, 0, 0])
-        nx1 = round(x1 / max(1, iw), 4)
-        ny1 = round(y1 / max(1, ih), 4)
-        nx2 = round(x2 / max(1, iw), 4)
-        ny2 = round(y2 / max(1, ih), 4)
-        summary_lines.append(f"id={oid}, name='{label}', role={role}, bbox_norm=[{nx1},{ny1},{nx2},{ny2}]")
-        role_lines.append(f"{oid}:{role}")
-    summary_text = "\n".join(summary_lines)
-    row_bad, col_bad = _compute_nesting_conflicts(str(bundle / "results.json"), canvas_size, margin)
-    row_bad_str = ", ".join([f"({a}, {b})" for a, b in row_bad]) or "none"
-    col_bad_str = ", ".join([f"({a}, {b})" for a, b in col_bad]) or "none"
-    aspect_family = _ratio_family(ratio)
-    best_practices = _best_practices_text(aspect_family)
-    shared_context_block = _build_shared_prompt_context(best_practices, summary_text, role_lines, row_bad_str, col_bad_str)
-    base_prompt = f"""### PERSONA
-
-You are a pragmatic Layout Planner.
-TASK
-
-Your goal is to generate a valid first-draft layout in the Flex DSL JSON format. Analyze the original image to understand its visual intent and use the object data as your guide. Your layout must fit within the provided target canvas.
-
-{shared_context_block}
-OUTPUT INSTRUCTIONS
-
-    Your output must be ONLY the valid JSON object.
-
-    Do not include any explanations, comments, or markdown code fences."""
-    return base_prompt
 
 
 if run_clicked:
@@ -356,9 +191,9 @@ if run_clicked:
                     refine_iters=refine_iters,
                     original_input_path=str(selected_path),
                     api_key=api_key,
-                    planner_prompt_override=planner_prompt_override.strip() or None,
-                    critic_prompt_override=critic_prompt_override.strip() or None,
-                    refiner_prompt_override=refiner_prompt_override.strip() or None,
+                    planner_custom_design_rules=planner_custom_design_rules.strip() or None,
+                    critic_custom_design_rules=critic_custom_design_rules.strip() or None,
+                    refiner_custom_design_rules=refiner_custom_design_rules.strip() or None,
                 )
                 st.session_state["has_run"] = True
                 # reset slider to 0 for fresh viewing
