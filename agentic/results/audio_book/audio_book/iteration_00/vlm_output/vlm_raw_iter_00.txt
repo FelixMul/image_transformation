@@ -1,0 +1,50 @@
+### Layout Plan for Vertical Design
+
+Given the guidelines and constraints, here's how we can approach designing a vertical layout:
+
+#### Step-by-Step Reasoning:
+
+1. **Identify Key Objects**: Begin by identifying all key objects such as headers, logos, CTAs, images, and other text blocks from the original data. Ensure each object is used exactly once.
+
+2. **Apply Hard Constraints**:
+   - **Nesting Depth**: Ensure no objects are nested within containers. Each container should directly hold its related objects.
+   - **No Overlap**: Arrange objects so that none overlap, especially ensuring text does not overlay images.
+   - **Canvas Boundaries**: Confirm all objects fit entirely within the canvas boundaries with text fully visible.
+
+3. **Soft Constraints Application**:
+   - **Grouping**: Group objects similarly to the original layout where it makes sense. For instance, if the original had a header followed by an image and then a block of text, maintain this sequence vertically.
+   - **Reading Order**: Maintain the reading order of text elements as they appeared in the original layout.
+   - **Horizontal → Vertical Mapping**: Adjust placements according to the transformation rules. For example, if an element was at the top-right corner in the horizontal layout, place it towards the bottom-left in the vertical layout.
+
+4. **Key Object Placement**:
+   - **Header**: Place the main header near the top of the vertical layout.
+   - **Logo**: Position the logo either at the very top or bottom depending on the original placement.
+   - **CTA**: Place the call-to-action button in the lower half of the layout, ideally around the two-thirds mark but not too close to the bottom edge.
+
+5. **Balance and Centering**:
+   - **Even Spacing**: Distribute objects evenly across the canvas to avoid large empty spaces. Aim for proportional margins between objects.
+   - **Centeredness**: Center most objects by default, adjusting top and bottom margins proportionally to inter-object spacing. Only deviate from centering if the original design had a specific off-center placement.
+
+6. **Special Placements**: Retain any special placements seen in the original design, such as objects snapped to borders or intentionally offset.
+
+#### Example Layout Plan:
+
+Assuming the original horizontal layout had the following elements:
+
+- **Header**: Top-left corner
+- **Logo**: Top-right corner
+- **Main Image**: Centered horizontally
+- **Text Block 1**: Below the image, aligned left
+- **Text Block 2**: Below Text Block 1, aligned right
+- **CTA Button**: Bottom-right corner
+
+The vertical layout would look like this:
+
+1. **Header**: Positioned at the top-center of the vertical layout.
+2. **Logo**: Positioned just below the header, centered.
+3. **Main Image**: Centered below the logo, taking up a significant portion of the middle section.
+4. **Text Block 1**: Positioned below the image, slightly left-aligned.
+5. **Text Block 2**: Positioned below Text Block 1, slightly right-aligned.
+6. **CTA Button**: Positioned in the lower third of the layout, centered but not too close to the bottom edge.
+
+This plan ensures all objects are used exactly once, adheres to nesting and overlap constraints, maintains the reading order, and balances the layout while respecting the original design's intent.
