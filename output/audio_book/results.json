@@ -1,0 +1,41 @@
+[
+    {
+        "object_id": 1,
+        "label": "photo",
+        "per_label_number": 1,
+        "filename": "objects/photo_1.png",
+        "bounding_box": [
+            145.0,
+            11.0,
+            331.0,
+            248.0
+        ],
+        "confidence_score": 1.0
+    },
+    {
+        "object_id": 2,
+        "label": "text",
+        "per_label_number": 1,
+        "filename": "objects/text_1.png",
+        "bounding_box": [
+            383.0,
+            17.0,
+            830.0,
+            133.0
+        ],
+        "confidence_score": 1.0
+    },
+    {
+        "object_id": 3,
+        "label": "cta",
+        "per_label_number": 1,
+        "filename": "objects/cta_1.png",
+        "bounding_box": [
+            499.0,
+            143.0,
+            730.0,
+            231.0
+        ],
+        "confidence_score": 1.0
+    }
+]
