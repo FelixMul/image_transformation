@@ -2,7 +2,7 @@
 
 This project is a focused module of a broader AI image editing pipeline. It performs macro placement: given an image and its segmented objects, it recomposes those objects on a newly generated canvas of a different aspect ratio. The system decides which object goes roughly where and in what order (containers/rows/columns), not the pixel-precise “micro” adjustments. It assumes object segmentation is already done, and that micro placement or fine alignment happens in a downstream step.
 
-The core idea is to combine a deterministic compositor with a VLM-guided layout plan expressed in a simple Flex-DSL (row/column containers with justify/align/padding/gap). A Streamlit app wraps the pipeline so you can experiment with persona prompts and see iteration-by-iteration results.
+The core idea is to combine a deterministic compositor with a VLM-guided layout plan expressed in a simple Flex-DSL (row/column containers with justify/align/padding/gap). A Streamlit app wraps the pipeline so you can tweak persona-level design rules and see iteration-by-iteration results.
 
 ## Why this matters
 
@@ -63,14 +63,14 @@ The core idea is to combine a deterministic compositor with a VLM-guided layout 
   </table>
 </div>
 
-## Prompt engineering playground
+## Prompting surface in the UI
 
-The Streamlit UI exposes full prompt boxes for each persona:
-- **Initial layout prompt**: responsible for producing a valid first‑draft Flex‑DSL JSON.
-- **Critic prompt**: scores, flags constraint violations, and provides actionable feedback.
-- **Refiner prompt**: rewrites the JSON to address the critique.
+The Streamlit UI exposes editable design-rule text areas per persona (not the full prompts):
+- **Planner design rules**: guidance used by the initial layout planner when producing Flex‑DSL JSON.
+- **Critic design rules**: guidance used by the critic when scoring and flagging issues.
+- **Refiner design rules**: guidance for the refiner when making minor adjustments.
 
-You can adjust each prompt fully, run the pipeline, compare iterations, and iterate your instructions. This helps discover persona wording and context structures that are robust for your content.
+All other prompt context (object data, constraints, schema, etc.) is constructed automatically.
 
 ## Typical applications
 
@@ -85,21 +85,50 @@ You can adjust each prompt fully, run the pipeline, compare iterations, and iter
 - Outputs are “macro” placements; downstream tools should handle fine alignment, typography, and style.
 - The Flex‑DSL is intentionally small (depth ≤ 2) to keep the search space tractable and the output deterministic.
 
-## Running the app (local, with uv)
+## Running the app (local)
 
-Prereqs: Python and `uv` installed.
+Prereqs: Python 3.10+.
 
+Setup with venv and pip:
 ```bash
-uv run --with streamlit --with pillow --with numpy --with openai \
-  streamlit run app.py
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Alternative with uv:
+```bash
+uv pip install -r requirements.txt
+uv run streamlit run app.py
 ```
 
 In the UI:
-- Paste your Nebius API key in the sidebar (used only for this session).
+- Enter your Nebius API key in the sidebar (used only for this session). You can also export it as `NEBIUS_API_KEY` for CLI runs.
 - Pick an input image from `input/`.
 - Ensure the segmentation bundle exists at `output/<image_stem>/` with `background.png`, `results.json`, and `objects/`.
 - Set ratio, align, margin, temperature, and refine iterations.
-- Optionally edit the full persona prompts. Run the pipeline and explore iterations.
+- Optionally edit the persona design rules. Run the pipeline and explore iterations.
+
+## Command-line usage (no UI)
+
+You can run the pipeline directly via the CLI entry in `macro_placement_test.py`:
+
+```bash
+export NEBIUS_API_KEY=...  # or rely on Ollama if you configure --api ollama
+python macro_placement_test.py \
+  --image input/squarespace.jpg \
+  --ratio 9:16 \
+  --align center \
+  --margin 0.05 \
+  --api nebius \
+  --temperature 0.8 \
+  --refine-iters 3
+```
+
+Notes:
+- The script expects the segmentation bundle at `output/<image_stem>/` next to `input/`.
+- It writes results to `output_macro_placement/<image_stem>/` and clears any prior run for that stem.
 
 ## Inputs and outputs (expected layout)
 
@@ -118,12 +147,16 @@ In the UI:
 ## Code structure (brief)
 
 - `macro_placement_test.py` – pipeline entry (`run_macro_only`), prompt building, VLM calls, validation, iteration orchestration
-- `api_client.py` – unified Nebius/Ollama client (Nebius via OpenAI SDK base_url), session‑scoped API key support
+- `api_client.py` – unified Nebius/Ollama client (Nebius via OpenAI SDK base_url); accepts key from env or UI
 - `layout_constraints.py` – canvas sizing, grid helpers, flow layout utilities
 - `background_resizing.py` – background synthesis (solid median color)
 - `compositor.py` – deterministic alpha compositing given placements
-- `app.py` – Streamlit UI (parameters, prompt editing, iteration viewer)
+- `app.py` – Streamlit UI (parameters, persona design-rule editing, iteration viewer)
 - `utils/` – small helpers (timing, labels)
+
+### Agentic directory (experimental)
+
+The `agentic/` directory contains an in-progress LangGraph-based workflow that aims to split the system into Macro, Micro, Critic, and Validator agents with tool-calling. It also includes a Streamlit UI at `agentic/app.py`. This path is not yet functional end-to-end; consider it a work-in-progress reference for future development.
 
 ## Roadmap
 
